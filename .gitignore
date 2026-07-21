@@ -1,0 +1,6 @@
+.pw-profile/
+.venv/
+__pycache__/
+*.pyc
+*- TESTE.xlsx
+credentials.json
