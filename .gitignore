@@ -4,3 +4,11 @@ __pycache__/
 *.pyc
 *- TESTE.xlsx
 credentials.json
+build/
+dist/
+
+# Gerados pelo build (versão resolvida do git / recurso de versão do Windows)
+_version_baked.txt
+_win_version.txt
+version.txt
+*.zip

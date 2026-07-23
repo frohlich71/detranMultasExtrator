@@ -21,12 +21,34 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import time
 
-CHROME_CANDIDATES = [
+_MAC_CANDIDATES = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta",
 ]
+
+_WIN_CANDIDATES = [
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                 r"Google\Chrome\Application\chrome.exe"),
+]
+
+CHROME_CANDIDATES = _WIN_CANDIDATES if sys.platform == "win32" else _MAC_CANDIDATES
+
+
+def _detach_kwargs() -> dict:
+    """Faz o Chrome sobreviver ao fim do processo pai (a sessão precisa continuar viva).
+
+    `start_new_session` é POSIX-only; no Windows o equivalente é destacar o processo
+    do console e do grupo de processos do pai.
+    """
+    if sys.platform == "win32":
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "DETACHED_PROCESS", 0x8)
+        return {"creationflags": flags}
+    return {"start_new_session": True}
 
 
 def find_chrome() -> str:
@@ -67,9 +89,9 @@ def ensure_chrome(user_data_dir: str, port: int, start_url: str, timeout_s: int 
             "--disable-features=Translate",
             start_url,
         ],
-        start_new_session=True,  # sobrevive ao fim do script → sessão fica viva p/ a próxima run
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        **_detach_kwargs(),  # sobrevive ao fim do script → sessão fica viva p/ a próxima run
     )
 
     deadline = time.time() + timeout_s

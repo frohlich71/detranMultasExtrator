@@ -23,6 +23,8 @@ O programa lê uma lista de veículos (placa + renavam) de uma planilha, consult
 - [Como funciona](#como-funciona)
 - [Requisitos](#requisitos)
 - [Instalação](#instalação)
+- [Programa com tela (sem terminal)](#programa-com-tela-sem-terminal)
+- [Gerar o executável](#gerar-o-executável)
 - [Formato da planilha](#formato-da-planilha)
 - [Uso rápido](#uso-rápido)
 - [Opções da CLI](#opções-da-cli)
@@ -41,6 +43,7 @@ O programa lê uma lista de veículos (placa + renavam) de uma planilha, consult
 - 🧾 Filtra só multas **pendentes** (a vencer / vencida / não paga).
 - ♻️ **Deduplicação** pelo número do AI: rodar duas vezes não duplica linhas.
 - 📤 Dois destinos: arquivo `.xlsx` local (conferência) ou **Google Sheets ao vivo**.
+- 🗂️ **Fila de planilhas**: várias planilhas rodam em sequência, reaproveitando a mesma sessão.
 - 🧪 `--dry-run` para ver o que seria gravado sem escrever nada.
 - 🐢 Throttle randômico entre veículos, para um uso comedido do site.
 
@@ -72,8 +75,10 @@ GET https://pcsdetran.procergs.com.br/pcsdetran/rest/infracoes/veiculos/publicas
 ## Requisitos
 
 - **Python 3.11+** (desenvolvido em 3.14).
-- **Google Chrome** instalado (macOS: `/Applications/Google Chrome.app`; Linux:
-  `google-chrome` / `chromium` no `PATH`).
+- **Google Chrome** instalado (Windows: `C:\Program Files\Google\Chrome\...`; macOS:
+  `/Applications/Google Chrome.app`; Linux: `google-chrome` / `chromium` no `PATH`).
+- Para a tela: **Tkinter** (vem com o Python oficial; no Python do Homebrew, instale
+  `brew install python-tk`).
 - Uma conta **gov.br** com acesso à Central de Serviços do DetranRS.
 - Opcional: projeto no Google Cloud com **Google Sheets API**, para o modo Sheets.
 
@@ -91,7 +96,71 @@ playwright install chromium         # baixa os drivers do Playwright
 ```
 
 > O `playwright install chromium` instala apenas os drivers. O navegador usado na prática
-> é o **Chrome do sistema**.
+> é o **Chrome do sistema** — por isso, no executável empacotado, esse passo nem é
+> necessário.
+
+## Programa com tela (sem terminal)
+
+Além da CLI, há um aplicativo de janela (Tkinter) que guarda a configuração e sabe se
+agendar sozinho:
+
+```bash
+python app.py            # abre a tela
+python app.py --run      # execução agendada: sem interface, sem perguntas
+python app.py --login    # só o login no gov.br
+```
+
+A tela tem três abas:
+
+- **Configuração** — origem/destino (Google Sheets ou `.xlsx`), botão para importar o
+  `credentials.json`, a **lista de planilhas** (com *Adicionar / Editar / Remover*) que rodam
+  em sequência, limite de veículos, esperas, porta do Chrome e o modo simulação.
+- **Execução** — botões *Fazer login*, *Consultar agora* e *Parar*, log ao vivo e o
+  bloco de agendamento diário. *Parar* interrompe entre uma planilha e a próxima.
+- **Histórico** — as últimas execuções (quando, origem, planilha, veículos, multas novas,
+  status), com **uma linha por planilha** da fila.
+
+Tudo fica em uma pasta do usuário, **não** no diretório do projeto (uma execução agendada
+roda com o diretório de trabalho imprevisível):
+
+| SO | pasta |
+|----|-------|
+| Windows | `%APPDATA%\DetranExtractor` |
+| macOS | `~/Library/Application Support/DetranExtractor` |
+| Linux | `~/.config/DetranExtractor` |
+
+Dentro dela: `config.json`, o `credentials.json` importado, `chrome-profile/` (o profile
+do Chrome que mantém a sessão), `logs/` e `history.jsonl`. O botão **Abrir pasta de
+dados** leva direto até lá.
+
+### Agendamento automático
+
+No bloco *Agendamento* da aba Execução, escolha o horário e clique em
+**Criar/atualizar**. O programa registra a tarefa no agendador nativo:
+
+- **Windows** — Agendador de Tarefas (`schtasks`), tarefa `DetranExtractor`, diária.
+- **macOS/Linux** — LaunchAgent `com.detranextractor.diario` em `~/Library/LaunchAgents`.
+
+> ⚠️ **A pegadinha do agendamento.** O token do DetranRS vive no `sessionStorage` de um
+> Chrome aberto. Então, no horário marcado, é preciso que o **computador esteja ligado**,
+> com o **usuário logado** e o **Chrome do programa aberto e autenticado no gov.br**. Por
+> isso a tarefa roda na sessão interativa do usuário — nunca como serviço/SYSTEM.
+>
+> Se a sessão tiver expirado, a execução **não trava esperando login**: ela registra o
+> erro em `logs/run-AAAA-MM-DD.log`, grava a falha no histórico, mostra uma notificação e
+> sai com código 1. Aí é só abrir o programa e clicar em *Fazer login no gov.br*.
+
+## Gerar o executável
+
+```bash
+pip install pyinstaller
+pyinstaller detranExtractor.spec
+```
+
+Sai em `dist/`: `DetranExtractor.exe` no Windows, `DetranExtractor.app` no macOS. Na
+máquina de destino basta ter o **Google Chrome** instalado — nem Python, nem venv, nem
+os navegadores do Playwright (o programa só se **anexa** a um Chrome real via CDP, então
+o `playwright install chromium` é dispensável no pacote; só o driver Node vai junto).
 
 ## Formato da planilha
 
@@ -134,6 +203,10 @@ python main.py --xlsx "minha-planilha.xlsx" --limit 5 --dry-run
 
 # grava as multas novas num .xlsx de saída
 python main.py --xlsx "minha-planilha.xlsx" --limit 10 --min-delay 6 --max-delay 15
+
+# várias planilhas em sequência (repita --xlsx; pareie os --out-xlsx pela ordem)
+python main.py --xlsx "frota-a.xlsx" --out-xlsx "saida-a.xlsx" \
+               --xlsx "frota-b.xlsx" --out-xlsx "saida-b.xlsx"
 ```
 
 Enquanto a janela do Chrome continuar aberta, os próximos comandos nem pedem login.
@@ -145,8 +218,9 @@ Se você fechar o Chrome, rode `python main.py --login` de novo.
 |------|---------|-----------|
 | `--login` | — | abre o Chrome e espera você logar no gov.br (não consulta) |
 | `--source` | `xlsx` | fonte/destino dos dados: `xlsx` ou `sheets` |
-| `--xlsx` | `CONTROLE DE MULTAS VICTOR.xlsx` | caminho da planilha de entrada |
-| `--out-xlsx` | `CONTROLE DE MULTAS VICTOR - TESTE.xlsx` | arquivo de saída (modo `xlsx`) |
+| `--xlsx` | `CONTROLE DE MULTAS VICTOR.xlsx` | planilha de entrada; **repita** para enfileirar várias |
+| `--out-xlsx` | `CONTROLE DE MULTAS VICTOR - TESTE.xlsx` | arquivo de saída (modo `xlsx`); pareado por ordem com cada `--xlsx` |
+| `--spreadsheet-id` | `DEFAULT_SPREADSHEET_ID` | ID da planilha (modo `sheets`); **repita** para enfileirar várias |
 | `--credentials` | `credentials.json` | chave da Service Account (modo `sheets`) |
 | `--limit` | `5` | máximo de veículos a consultar |
 | `--dry-run` | — | só mostra o que seria adicionado, sem gravar |
@@ -181,6 +255,10 @@ python main.py --source sheets --limit 5 --dry-run
 
 # gravar as multas novas na planilha online
 python main.py --source sheets --limit 21
+
+# várias planilhas em sequência (repita --spreadsheet-id)
+python main.py --source sheets --limit 21 \
+               --spreadsheet-id "ID_DA_PLANILHA_A" --spreadsheet-id "ID_DA_PLANILHA_B"
 ```
 
 > ⚠ O modo `xlsx` gera o arquivo de saída com openpyxl, que **não preserva** comentários
@@ -220,13 +298,25 @@ estão na aba `CONTROLE DE MULTAS`:
 ## Estrutura do projeto
 
 ```
-main.py               orquestra: carrega dados → Chrome/sessão → consulta → filtra → grava
+app.py                entrada do programa empacotado: tela, --run (agendado) e --login
+gui.py                tela Tkinter: configuração, execução com log ao vivo, histórico
+main.py               a CLI (traduz os argumentos para um Config e chama o runner)
+runner.py             a pipeline: carrega dados → Chrome/sessão → consulta → filtra → grava
+config.py             Config persistido em JSON na pasta de dados do usuário
+scheduler.py          agendamento diário no schtasks (Windows) / launchd (macOS)
+history.py            histórico das execuções em history.jsonl
 browser.py            lança o Chrome genuíno com porta de debug e anexa via CDP
 detran_client.py      consulta 1 veículo na sessão logada e devolve o JSON de infrações
 vehicles_source.py    leitura da aba LISTA DE CARROS (xlsx)
 controle_multas.py    regras da aba CONTROLE DE MULTAS: pendência, dedup, mapeamento, XlsxSink
 sheets.py             backend Google Sheets ao vivo (leitura + SheetsSink) via Service Account
+detranExtractor.spec  receita do PyInstaller
 ```
+
+`runner.py` é neutro quanto à interface: recebe um callback `log()` e um `ask_login()`.
+A CLI passa `print`/`input`, a tela passa uma fila e uma caixa de diálogo, e o modo
+agendado passa `ask_login=None` — que é justamente o que impede uma execução automática
+de ficar travada esperando alguém digitar algo.
 
 As funções `*_from_rows()` em `vehicles_source.py` e `controle_multas.py` trabalham sobre
 sequências genéricas de linhas — o `sheets.py` reaproveita as mesmas funções. **Nova lógica
@@ -242,7 +332,7 @@ configurado, então:
 3. Faça um smoke test dos imports após editar:
 
    ```bash
-   python -c "import main, sheets, controle_multas, vehicles_source, detran_client, browser; print('imports OK')"
+   python -c "import app, gui, runner, config, scheduler, history, main, sheets, controle_multas, vehicles_source, detran_client, browser; print('imports OK')"
    ```
 
 4. Não commite dados reais: planilhas com placas/renavam, `credentials.json` ou perfis do

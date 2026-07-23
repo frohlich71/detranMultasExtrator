@@ -1,0 +1,75 @@
+name: build
+
+# Build contínuo: a cada push na main gera os executáveis (macOS .app + Windows .exe)
+# como artefatos, já versionados a partir do git. Quando você cria uma tag vX.Y.Z, o
+# mesmo build vira um Release oficial no GitHub com os dois arquivos anexados.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write   # necessário para criar Releases nas tags
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact: DetranExtractor-macos
+          - os: windows-latest
+            artifact: DetranExtractor-windows
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # histórico + tags completos para o `git describe`
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Resolver a versão a partir do git
+        id: ver
+        shell: bash
+        run: |
+          python _version.py > version.txt
+          mv version.txt _version_baked.txt
+          echo "version=$(cat _version_baked.txt)" >> "$GITHUB_OUTPUT"
+          echo "Versão: $(cat _version_baked.txt)"
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Build (PyInstaller)
+        run: pyinstaller --noconfirm detranExtractor.spec
+
+      - name: Empacotar (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          zip -r "../${{ matrix.artifact }}-${{ steps.ver.outputs.version }}.zip" DetranExtractor.app
+
+      - name: Empacotar (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/DetranExtractor.exe `
+            -DestinationPath "${{ matrix.artifact }}-${{ steps.ver.outputs.version }}.zip"
+
+      - name: Publicar artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}-*.zip
+          if-no-files-found: error
+
+      - name: Release (somente em tags vX.Y.Z)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact }}-*.zip

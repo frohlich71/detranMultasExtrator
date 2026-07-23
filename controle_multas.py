@@ -5,7 +5,8 @@ Mapeia uma infração vinda do DETRAN para uma linha da aba CONTROLE DE MULTAS
 
 Colunas da aba CONTROLE DE MULTAS:
     A=TRELLO  B=CARRO  C=DATA DA INFRAÇÃO  D=NÚMERO DO AI  E=ORGÃO AUTUADOR
-    F=VALOR   G+=status/motorista/...
+    F=VALOR   G=NOME DO MOTORISTA  H=MOTORISTA INFORMADO?  I=MOTORISTA PAGOU?
+    J=INDICAÇÃO REALIZADA  K=INDICAÇÃO ACEITA  L=STATUS DA MULTA
 
 Sinks de escrita:
     - XlsxSink: grava num arquivo .xlsx (usado agora, para testes).
@@ -27,6 +28,7 @@ COL_C_DATA = 3
 COL_D_AIT = 4
 COL_E_ORGAO = 5
 COL_F_VALOR = 6
+COL_L_STATUS = 12
 
 
 @dataclass
@@ -36,12 +38,14 @@ class MultaRow:
     ait: str            # D
     orgao: str          # E
     valor: float | None  # F
+    status: str         # L
 
     def to_cells(self) -> list:
-        """Linha A..F para append no Google Sheets (A vazia; datas em dd/mm/aaaa)."""
+        """Linha A..L para append no Google Sheets (A e G..K vazias; datas em dd/mm/aaaa)."""
         data = self.data.strftime("%d/%m/%Y") if isinstance(self.data, date) else (self.data or "")
         return ["", self.carro, data, self.ait, self.orgao,
-                self.valor if self.valor is not None else ""]
+                self.valor if self.valor is not None else "",
+                "", "", "", "", "", self.status]
 
 
 # ---------------------------------------------------------------- parsing/regras
@@ -56,6 +60,19 @@ def is_pendente(inf: dict) -> bool:
     if "vencer" in g or "vencid" in g:  # A Vencer / Vencida(s)
         return True
     return False
+
+
+def status_vencimento(inf: dict) -> str:
+    """Rótulo para a coluna L (STATUS DA MULTA) a partir do 'grupo' do DETRAN."""
+    g = (inf.get("grupo") or "").strip()
+    gl = g.lower()
+    if "vencid" in gl:  # antes de 'vencer' (embora não seja substring, deixa explícito)
+        return "VENCIDA"
+    if "vencer" in gl:
+        return "A VENCER"
+    if "não paga" in gl or "nao paga" in gl:
+        return "NÃO PAGA"
+    return g.upper()
 
 
 def parse_valor(valor) -> float | None:
@@ -96,6 +113,7 @@ def build_row(carro: str, inf: dict, lookup: dict[str, str]) -> MultaRow:
         ait=str(inf.get("serieAIT") or "").strip(),
         orgao=orgao_str(inf.get("codOat"), inf.get("orgaoFiscalizador"), lookup),
         valor=parse_valor(inf.get("valor")),
+        status=status_vencimento(inf),
     )
 
 
@@ -175,6 +193,7 @@ class XlsxSink:
         self.ws.cell(r, COL_E_ORGAO, row.orgao)
         f = self.ws.cell(r, COL_F_VALOR, row.valor)
         f.number_format = "0.00"
+        self.ws.cell(r, COL_L_STATUS, row.status)
         self.count += 1
 
     def save(self) -> None:

@@ -15,6 +15,7 @@ from __future__ import annotations
 import gspread
 from google.oauth2.service_account import Credentials
 
+from config import DEFAULT_SPREADSHEET_ID
 from controle_multas import (
     SHEET_CONTROLE,
     SHEET_ORGAO,
@@ -26,8 +27,8 @@ from vehicles_source import SHEET_NAME as SHEET_LISTA
 from vehicles_source import vehicles_from_rows
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-# ID da planilha "CONTROLE DE MULTAS VICTOR".
-DEFAULT_SPREADSHEET_ID = "1OHV-PBgaO01URo0ZmnvlvHk-UQVZuvV0fOxmc8O2ozI"
+# O ID default vem de `config` (é o da planilha "CONTROLE DE MULTAS VICTOR"); a tela e a
+# CLI passam o ID configurado pelo usuário.
 
 
 def open_spreadsheet(credentials_path: str, spreadsheet_id: str = DEFAULT_SPREADSHEET_ID):
