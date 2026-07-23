@@ -19,6 +19,9 @@ import sys
 
 from PyInstaller.utils.hooks import collect_all
 
+# O PyInstaller executa este .spec via exec() com o diretório do spec fora do sys.path;
+# SPECPATH (injetado pelo PyInstaller) é esse diretório, então o adicionamos para achar _version.
+sys.path.insert(0, SPECPATH)
 from _version import __version__, numeric_tuple, short
 
 playwright_datas, playwright_binaries, playwright_hidden = collect_all("playwright")
@@ -26,7 +29,7 @@ playwright_datas, playwright_binaries, playwright_hidden = collect_all("playwrig
 # Grava a versão resolvida num arquivo que vai embutido, para o app saber a própria
 # versão em runtime (não há git dentro do executável). No CI o arquivo já existe; num
 # build local ele é gerado aqui a partir do git.
-_baked = os.path.join(os.path.dirname(os.path.abspath(SPEC)), "_version_baked.txt")
+_baked = os.path.join(SPECPATH, "_version_baked.txt")
 with open(_baked, "w", encoding="utf-8") as _fh:
     _fh.write(__version__)
 
